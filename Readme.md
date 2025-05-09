@@ -1,4 +1,4 @@
-#RTOS demo running on qemu 
+# RTOS demo running on qemu 
 v0.0.1 
 added simple process blocking demo with mutex
 
