@@ -74,9 +74,10 @@
 milliseconds to ticks using the pdMS_TO_TICKS() macro. */
 #define mainTASK_SEND_FREQUENCY_MS			pdMS_TO_TICKS( 200UL )
 #define mainTIMER_SEND_FREQUENCY_MS			pdMS_TO_TICKS( 2000UL )
+#define mainTIMER_THREE_TASK_FREQ_MS 		pdMS_TO_TICKS( 1000UL )
 
 /* The number of items the queue can hold at once. */
-#define mainQUEUE_LENGTH					( 2 )
+#define mainQUEUE_LENGTH					( 10 )
 
 /* The values sent to the queue receive task from the queue send task and the
 queue send software timer respectively. */
@@ -84,13 +85,18 @@ queue send software timer respectively. */
 #define mainVALUE_SENT_FROM_TIMER			( 200UL )
 #define mainVALUE_FROM_BLOCKED_TASK         ( 300UL )
 #define mainVALUE_FROM_UNBLOCKED_TASK       ( 400UL )
+#define mainTASK_OFFSET_VAL                 ( 3U )
 
+#define PROC_ONE_ID (25UL)
+#define PROC_TWO_ID (26UL)
+#define PROC_THREE_ID (27UL)
 /*-----------------------------------------------------------*/
 
 /*
 added code semiphores
 a test semiphore
 */
+static uint32_t blockerCriticalRegion[10];
 static SemaphoreHandle_t xBlocker1;
 
 
@@ -101,6 +107,9 @@ static SemaphoreHandle_t xBlocker1;
  */
 static void prvQueueReceiveTask( void *pvParameters );
 static void prvQueueSendTask( void *pvParameters );
+static void prvTaskOne( void *pvParameters );
+static void prvTaskTwo( void *pvParameters );
+static void prvTaskThree( void *pvParameters );
 
 
 /*
@@ -149,13 +158,13 @@ xBlocker1 = xSemaphoreCreateMutex();
 					mainQUEUE_RECEIVE_TASK_PRIORITY,/* The priority assigned to the task. */
 					NULL );							/* The task handle is not required, so NULL is passed. */
 
-		xTaskCreate( prvQueueSendTask, "TX", configMINIMAL_STACK_SIZE, NULL, mainQUEUE_SEND_TASK_PRIORITY, NULL );
-
-		
-
-	
 
 
+		xTaskCreate( prvTaskOne, "T1", configMINIMAL_STACK_SIZE*8, NULL, mainQUEUE_SEND_TASK_PRIORITY+mainTASK_OFFSET_VAL, NULL );
+
+		xTaskCreate( prvTaskTwo, "T2", configMINIMAL_STACK_SIZE*8, NULL, mainQUEUE_SEND_TASK_PRIORITY+mainTASK_OFFSET_VAL, NULL );
+
+		xTaskCreate( prvTaskThree, "T3", configMINIMAL_STACK_SIZE*8, NULL, mainQUEUE_SEND_TASK_PRIORITY+mainTASK_OFFSET_VAL, NULL );
 		/* Create the software timer, but don't start it yet. */
 		xTimer = xTimerCreate( "Timer",				/* The text name assigned to the software timer - for debug only as it is not used by the kernel. */
 								xTimerPeriod,		/* The period of the software timer in ticks. */
@@ -163,15 +172,9 @@ xBlocker1 = xSemaphoreCreateMutex();
 								NULL,				/* The timer's ID is not used. */
 								prvQueueSendTimerCallback );/* The function executed when the timer expires. */
 								/* Create the software timer, but don't start it yet. */
-		xTimer2 = xTimerCreate( "BlockTimer",				/* The text name assigned to the software timer - for debug only as it is not used by the kernel. */
-			xTimerPeriod2,		/* The period of the software timer in ticks. */
-			pdTRUE,				/* xAutoReload is set to pdTRUE, so this is an auto-reload timer. */
-			NULL,				/* The timer's ID is not used. */
-			prvBlockedTaskOneCallback);/* The function executed when the timer expires. */
-
+		
 		xTimerStart( xTimer, 0 ); /* The scheduler has not started so use a block time of 0. */
-		xTimerStart( xTimer2, 0 );
-		/* Start the tasks and timer running. */
+	
 		vTaskStartScheduler();
 	}
 
@@ -184,6 +187,47 @@ xBlocker1 = xSemaphoreCreateMutex();
 	for( ;; );
 }
 /*-----------------------------------------------------------*/
+static void prvTaskOne( void *pvParameters ){
+
+	
+	while(1){
+		int i =1000;
+		i+=100;
+		if(xSemaphoreTake( xBlocker1, ( TickType_t ) 0 )){
+			blockerCriticalRegion[0] = PROC_ONE_ID;
+			xSemaphoreGive(xBlocker1);
+		}
+		vTaskDelay(i);
+	}
+}
+static void prvTaskTwo( void *pvParameters ){
+
+	while(1){
+		int i =0;
+		++i;
+		if(xSemaphoreTake( xBlocker1, ( TickType_t ) 0 )){
+			blockerCriticalRegion[0] = PROC_TWO_ID;
+			xSemaphoreGive(xBlocker1);
+		}
+		vTaskDelay(900);
+	}
+}
+static void prvTaskThree( void *pvParameters ){
+
+	while(1){
+		int i =0;
+		++i;
+		if(xSemaphoreTake( xBlocker1, ( TickType_t ) 0 )){
+			blockerCriticalRegion[0] = PROC_THREE_ID;
+			xSemaphoreGive(xBlocker1);
+		}
+		vTaskDelay(3990);
+	}
+}
+
+
+
+
 
 static void prvQueueSendTask( void *pvParameters )
 {
@@ -212,6 +256,9 @@ const uint32_t ulValueToSend = mainVALUE_SENT_FROM_TASK;
 		xQueueSend( xQueue, &ulValueToSend, 0U );
 	}
 }
+
+
+
 /*-----------------------------------------------------------*/
 
 static void prvQueueSendTimerCallback( TimerHandle_t xTimerHandle )
@@ -232,7 +279,7 @@ const uint32_t ulValueToSend = mainVALUE_SENT_FROM_TIMER;
 
 	xQueueSend( xQueue, &ulValueToSend, 0U );
 	//task should never get mutex
-	xSemaphoreTake( xBlocker1, ( TickType_t ) 0 );
+	//xSemaphoreTake( xBlocker1, ( TickType_t ) 0 );
 	
 }
 /*-----------------------------------------------------------*/
@@ -285,8 +332,7 @@ uint32_t ulReceivedValue;
 		FreeRTOSConfig.h.  It will not use any CPU time while it is in the
 		Blocked state. */
 		xQueueReceive( xQueue, &ulReceivedValue, portMAX_DELAY );
-		// char * test_recived_string =uart_getstring(UART0_ADDRESS,10);
-		// printf("t:%s\n", test_recived_string);
+		
 		/*  To get here something must have been received from the queue, but
 		is it an expected value? */
 		if( ulReceivedValue == mainVALUE_SENT_FROM_TASK )
@@ -308,6 +354,16 @@ uint32_t ulReceivedValue;
 			//task will never get mutex
 			
 		}
+
+		if(xSemaphoreTake( xBlocker1, ( TickType_t ) 10 )){
+			printf("last process to write was %d\r\n",(int)blockerCriticalRegion[0]);
+			xSemaphoreGive(xBlocker1);
+		}else{
+			printf("could not get semaphore\r\n");
+		}
+	
+
+		
 		
 	}
 }
