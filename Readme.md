@@ -1,6 +1,8 @@
 # RTOS demo running on qemu 
 v0.0.1 
 added simple process blocking demo with mutex
+V0.0.2
+added multi-process to mutex
 
 # Running with VSCode Launch Configurations
 
